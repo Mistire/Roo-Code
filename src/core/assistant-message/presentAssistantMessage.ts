@@ -9,7 +9,7 @@ import { customToolRegistry } from "@roo-code/core"
 import { t } from "../../i18n"
 
 import { defaultModeSlug, getModeBySlug } from "../../shared/modes"
-import type { ToolParamName, ToolResponse, ToolUse, McpToolUse } from "../../shared/tools"
+import type { ToolParamName, ToolResponse, ToolUse, McpToolUse, PushToolResult } from "../../shared/tools"
 
 import { AskIgnoredError } from "../task/AskIgnoredError"
 import { Task } from "../task/Task"
@@ -37,6 +37,8 @@ import { generateImageTool } from "../tools/GenerateImageTool"
 import { applyDiffTool as applyDiffToolClass } from "../tools/ApplyDiffTool"
 import { isValidToolName, validateToolUse } from "../tools/validateToolUse"
 import { codebaseSearchTool } from "../tools/CodebaseSearchTool"
+import { selectActiveIntentTool } from "../tools/SelectActiveIntentTool"
+import { hookEngine } from "../../hooks/HookEngine"
 
 import { formatResponse } from "../prompts/responses"
 import { sanitizeToolUseId } from "../../utils/tool-id"
@@ -383,6 +385,8 @@ export async function presentAssistantMessage(cline: Task) {
 						return `[${block.name} for '${block.params.skill}'${block.params.args ? ` with args: ${block.params.args}` : ""}]`
 					case "generate_image":
 						return `[${block.name} for '${block.params.path}']`
+					case "select_active_intent":
+						return `[${block.name} for '${block.params.intent_id}']`
 					default:
 						return `[${block.name}]`
 				}
@@ -675,20 +679,55 @@ export async function presentAssistantMessage(cline: Task) {
 				}
 			}
 
+			const isStateChanging = [
+				"write_to_file",
+				"execute_command",
+				"apply_diff",
+				"edit",
+				"search_and_replace",
+				"search_replace",
+				"edit_file",
+				"apply_patch",
+			].includes(block.name)
+
+			if (isStateChanging && !(cline as any).activeIntentId) {
+				pushToolResult(
+					formatResponse.toolError(
+						`Error: No active intent selected. You must use the 'select_active_intent' tool to pick an intent before performing any state-changing actions. This is required for governance and traceability.`,
+					),
+				)
+				break
+			}
+
+			// Intercept pushToolResult for trace recording
+			const originalPushToolResult = pushToolResult
+			const hookedPushToolResult: PushToolResult = (content) => {
+				originalPushToolResult(content)
+				// Trigger Post-Hook for trace recording
+				hookEngine
+					.triggerPostToolUse({
+						toolName: block.name as ToolName,
+						params: block.nativeArgs || block.params,
+						result: content,
+						task: cline,
+					})
+					.catch((err) => console.error("Post-Hook failed:", err))
+			}
+
 			switch (block.name) {
 				case "write_to_file":
 					await checkpointSaveAndMark(cline)
 					await writeToFileTool.handle(cline, block as ToolUse<"write_to_file">, {
 						askApproval,
 						handleError,
-						pushToolResult,
+						pushToolResult: hookedPushToolResult,
 					})
 					break
 				case "update_todo_list":
 					await updateTodoListTool.handle(cline, block as ToolUse<"update_todo_list">, {
 						askApproval,
 						handleError,
-						pushToolResult,
+						pushToolResult: hookedPushToolResult,
 					})
 					break
 				case "apply_diff":
@@ -696,7 +735,7 @@ export async function presentAssistantMessage(cline: Task) {
 					await applyDiffToolClass.handle(cline, block as ToolUse<"apply_diff">, {
 						askApproval,
 						handleError,
-						pushToolResult,
+						pushToolResult: hookedPushToolResult,
 					})
 					break
 				case "edit":
@@ -705,7 +744,7 @@ export async function presentAssistantMessage(cline: Task) {
 					await editTool.handle(cline, block as ToolUse<"edit">, {
 						askApproval,
 						handleError,
-						pushToolResult,
+						pushToolResult: hookedPushToolResult,
 					})
 					break
 				case "search_replace":
@@ -713,7 +752,7 @@ export async function presentAssistantMessage(cline: Task) {
 					await searchReplaceTool.handle(cline, block as ToolUse<"search_replace">, {
 						askApproval,
 						handleError,
-						pushToolResult,
+						pushToolResult: hookedPushToolResult,
 					})
 					break
 				case "edit_file":
@@ -721,7 +760,7 @@ export async function presentAssistantMessage(cline: Task) {
 					await editFileTool.handle(cline, block as ToolUse<"edit_file">, {
 						askApproval,
 						handleError,
-						pushToolResult,
+						pushToolResult: hookedPushToolResult,
 					})
 					break
 				case "apply_patch":
@@ -729,7 +768,7 @@ export async function presentAssistantMessage(cline: Task) {
 					await applyPatchTool.handle(cline, block as ToolUse<"apply_patch">, {
 						askApproval,
 						handleError,
-						pushToolResult,
+						pushToolResult: hookedPushToolResult,
 					})
 					break
 				case "read_file":
@@ -737,70 +776,77 @@ export async function presentAssistantMessage(cline: Task) {
 					await readFileTool.handle(cline, block as ToolUse<"read_file">, {
 						askApproval,
 						handleError,
-						pushToolResult,
+						pushToolResult: hookedPushToolResult,
 					})
 					break
 				case "list_files":
 					await listFilesTool.handle(cline, block as ToolUse<"list_files">, {
 						askApproval,
 						handleError,
-						pushToolResult,
+						pushToolResult: hookedPushToolResult,
 					})
 					break
 				case "codebase_search":
 					await codebaseSearchTool.handle(cline, block as ToolUse<"codebase_search">, {
 						askApproval,
 						handleError,
-						pushToolResult,
+						pushToolResult: hookedPushToolResult,
 					})
 					break
 				case "search_files":
 					await searchFilesTool.handle(cline, block as ToolUse<"search_files">, {
 						askApproval,
 						handleError,
-						pushToolResult,
+						pushToolResult: hookedPushToolResult,
 					})
 					break
 				case "execute_command":
 					await executeCommandTool.handle(cline, block as ToolUse<"execute_command">, {
 						askApproval,
 						handleError,
-						pushToolResult,
+						pushToolResult: hookedPushToolResult,
 					})
 					break
 				case "read_command_output":
 					await readCommandOutputTool.handle(cline, block as ToolUse<"read_command_output">, {
 						askApproval,
 						handleError,
-						pushToolResult,
+						pushToolResult: hookedPushToolResult,
 					})
 					break
 				case "use_mcp_tool":
 					await useMcpToolTool.handle(cline, block as ToolUse<"use_mcp_tool">, {
 						askApproval,
 						handleError,
-						pushToolResult,
+						pushToolResult: hookedPushToolResult,
 					})
 					break
 				case "access_mcp_resource":
 					await accessMcpResourceTool.handle(cline, block as ToolUse<"access_mcp_resource">, {
 						askApproval,
 						handleError,
-						pushToolResult,
+						pushToolResult: hookedPushToolResult,
 					})
 					break
 				case "ask_followup_question":
 					await askFollowupQuestionTool.handle(cline, block as ToolUse<"ask_followup_question">, {
 						askApproval,
 						handleError,
-						pushToolResult,
+						pushToolResult: hookedPushToolResult,
+					})
+					break
+				case "select_active_intent":
+					await selectActiveIntentTool.handle(cline, block as ToolUse<"select_active_intent">, {
+						askApproval,
+						handleError,
+						pushToolResult: hookedPushToolResult,
 					})
 					break
 				case "switch_mode":
 					await switchModeTool.handle(cline, block as ToolUse<"switch_mode">, {
 						askApproval,
 						handleError,
-						pushToolResult,
+						pushToolResult: hookedPushToolResult,
 					})
 					break
 				case "new_task":
@@ -808,7 +854,7 @@ export async function presentAssistantMessage(cline: Task) {
 					await newTaskTool.handle(cline, block as ToolUse<"new_task">, {
 						askApproval,
 						handleError,
-						pushToolResult,
+						pushToolResult: hookedPushToolResult,
 						toolCallId: block.id,
 					})
 					break
@@ -816,7 +862,7 @@ export async function presentAssistantMessage(cline: Task) {
 					const completionCallbacks: AttemptCompletionCallbacks = {
 						askApproval,
 						handleError,
-						pushToolResult,
+						pushToolResult: hookedPushToolResult,
 						askFinishSubTaskApproval,
 						toolDescription,
 					}
@@ -831,14 +877,14 @@ export async function presentAssistantMessage(cline: Task) {
 					await runSlashCommandTool.handle(cline, block as ToolUse<"run_slash_command">, {
 						askApproval,
 						handleError,
-						pushToolResult,
+						pushToolResult: hookedPushToolResult,
 					})
 					break
 				case "skill":
 					await skillTool.handle(cline, block as ToolUse<"skill">, {
 						askApproval,
 						handleError,
-						pushToolResult,
+						pushToolResult: hookedPushToolResult,
 					})
 					break
 				case "generate_image":
@@ -846,7 +892,7 @@ export async function presentAssistantMessage(cline: Task) {
 					await generateImageTool.handle(cline, block as ToolUse<"generate_image">, {
 						askApproval,
 						handleError,
-						pushToolResult,
+						pushToolResult: hookedPushToolResult,
 					})
 					break
 				default: {

@@ -1,10 +1,10 @@
-# Architecture Notes: Phase 0 - The Archaeological Dig
+## 1. How the VS Code Extension Works (The Tool Loop)
 
-This document maps the core components of Roo Code, focusing on the tool execution loop and the system prompt construction.
+The core functionality of the Roo Code extension revolves around a methodology where the LLM is given access to a "terminal" and "filesystem" through VS Code APIs.
 
-## Phase 0: Archaeological Dig Findings
+### Tool Execution Loop
 
-### 1. Tool Execution Loop
+Roo Code implements an agentic loop in `src/core/task/Task.ts`:
 
 The tool execution loop in Roo Code is a sophisticated agentic loop that coordinates LLM responses with local tool execution.
 
@@ -29,9 +29,9 @@ The tool execution loop in Roo Code is a sophisticated agentic loop that coordin
 
 - Each tool inherits from `BaseTool` and implements an `execute` (for full blocks) and sometimes `handlePartial` (for streaming) method.
 - `ExecuteCommandTool.ts`: Manages terminal interaction, output streaming, and termination.
-- `WriteToFileTool.ts`: Handles file creation/modification, including integration with the Diff View.
+- **WriteToFileTool.ts**: Handles file creation/modification, including integration with the Diff View and SHA-256 hashing for the trace layer.
 
-### 2. Prompt Builder
+## 2. Prompt Construction (The System Prompt)
 
 Roo Code uses a dynamic, modular system for constructing the system prompt.
 
@@ -88,6 +88,182 @@ Roo Code uses a dynamic, modular system for constructing the system prompt.
 
 `src/core/webview/ClineProvider.ts` acts as the bridge between the VS Code UI (Webview) and the `Task` logic. It handles sidebar registration, message passing, and state management.
 
+## 5. Architectural Decisions for the Hook System
+
+To meet the requirements of the Deterministic Hook System, the following architectural decisions are proposed:
+
+### A. Lifecycle Interceptors
+
+- **Pre-Hook (Enforcement)**: Injected into `Task.recursivelyMakeClineRequests` before `this.api.createMessage`. This will intercept the user message and inject the "Active Intent" context.
+- **Post-Hook (Traceability)**: Injected into `presentAssistantMessage.ts` inside the `tool_use` case, specifically after `pushToolResult(content)`. This will trigger the recording of the `agent_trace.jsonl` entry.
+
+### B. Two-Stage State Machine
+
+- We will introduce a new tool `select_active_intent` in `src/core/tools/`.
+- The system prompt in `src/core/prompts/system.ts` will be modified to instruct the agent to use `select_active_intent` before any other state-changing tool.
+- A "Context Partition" will be enforced: if no intent is active, tools like `write_to_file` and `execute_command` will be gated/rejected by the middleware.
+
+### C. Data Model (.orchestration/)
+
+- The `.orchestration/` directory will be managed via a new `OrchestrationService` (to be created in `src/services/`).
+- This service will handle YAML parsing for `active_intents.yaml` and append-only logic for `agent_trace.jsonl`.
+
+### D. Spatial Independence
+
+- Trace records will store file paths and content hashes (SHA-256) of the resulting file after a tool execution, rather than line numbers.
+
+## 6. Diagram of the Hook System
+
+### A. Two-Stage Handshake Execution Sequence
+
+The sequence of the intent-driven enforcement.
+
+```mermaid
+sequenceDiagram
+    participant LLM
+    participant TaskLoop as Task.ts (Orchestrator)
+    participant HookEngine
+    participant Orchestration as OrchestrationService
+    participant Disk as .orchestration/
+
+    LLM->>TaskLoop: Request select_active_intent(id)
+    TaskLoop->>HookEngine: triggerPreToolUse (select_active_intent)
+    HookEngine->>Orchestration: Load Intent context from Disk
+    Orchestration->>Disk: Read active_intents.yaml
+    Disk-->>Orchestration: Intent Data
+    Orchestration-->>HookEngine: Status & Context
+    HookEngine-->>TaskLoop: Context Injected (XML)
+    TaskLoop-->>LLM: Tool Result (Scope & Constraints)
+```
+
+### B. Hook System Class Diagram
+
+The static structure of the hook infrastructure and its relationship with core Roo Code components.
+
+```mermaid
+classDiagram
+    class Task {
+        +taskId: string
+        +activeIntentId: string
+        +activeIntentContext: any
+        +recursivelyMakeClineRequests()
+    }
+    class HookEngine {
+        -plugins: HookEnginePlugin[]
+        +register(plugin)
+        +triggerPreToolUse(params)
+        +triggerPostToolUse(params)
+    }
+    class OrchestrationService {
+        +orchestrationDir: string
+        +getIntent(id)
+        +recordTrace(trace)
+    }
+    class TraceRecordingPlugin {
+        +postToolUse(params)
+    }
+    class SelectActiveIntentTool {
+        +execute(params, task)
+    }
+    class HookEnginePlugin {
+        <<interface>>
+        +preToolUse(params)
+        +postToolUse(params)
+    }
+
+    Task "1" *-- "1" HookEngine : orchestrates
+    HookEngine "1" o-- "*" HookEnginePlugin : manages
+    TraceRecordingPlugin ..|> HookEnginePlugin
+    TraceRecordingPlugin --> OrchestrationService : uses
+    SelectActiveIntentTool --> OrchestrationService : uses
+```
+
+### C. The Two-Stage State Machine (Handshake)
+
+Enforcement of the plan-first strategy before any destructive actions.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> RequestAnalysis : User Message
+    RequestAnalysis --> WaitingForIntent : State-Changing Tool Requested?
+
+    state WaitingForIntent {
+        [*] --> Gated
+        Gated --> Gated : tool_use (destructive) WITHOUT intent (Error returned)
+        Gated --> IntentLoaded : select_active_intent(id)
+    }
+
+    IntentLoaded --> ActionExecution : Context Injected
+    ActionExecution --> TraceRecording : tool_result generated
+    TraceRecording --> Idle : Turn Finished
+```
+
 ---
 
-_This document serves as the foundation for Phase 1 (The Neural Graft)._
+## 7. Data Schemas (.orchestration/)
+
+To ensure interoperability and governance, the following schemas are enforced by the `OrchestrationService`.
+
+### A. active_intents.yaml
+
+Formal specification of business requirements and their spatial ownership.
+
+```yaml
+active_intents:
+    - id: "string" # INT-001
+      name: "string" # Human readable title
+      status: "string" # IN_PROGRESS | COMPLETED
+      owned_scope: # Spatial boundaries
+          - "src/auth/**"
+      constraints: # Behavioral boundaries
+          - "No external APIs"
+      acceptance_criteria: # Definition of Done
+          - "Unit tests pass"
+```
+
+### B. agent_trace.jsonl (The AI-Native Ledger)
+
+Append-only log for traceability, using content hashing for spatial independence.
+
+```json
+{
+	"id": "uuid-v4",
+	"timestamp": "ISO-8601",
+	"vcs": { "revision_id": "git_sha_hash" },
+	"intentId": "string",
+	"toolName": "string",
+	"params": { "path": "string", "content": "..." },
+	"files": [
+		{
+			"relative_path": "string",
+			"content_hash": "sha256:...",
+			"conversations": [
+				{
+					"contributor": { "entity_type": "AI", "model_identifier": "..." },
+					"related": [{ "type": "specification", "value": "REQ-001" }]
+				}
+			]
+		}
+	]
+}
+```
+
+## 8. Future Roadmap: The Neural Graft (Phase 2)
+
+In the next phase, we will transition from basic intent traceability to **Neural Grafting**, where specialized specification frameworks are deeply integrated into the IDE context.
+
+### Spec-Driven Development (SDD) Integration
+
+We will integrate the **GitHub Spec Kit** (or equivalent Spec Frameworks) to:
+
+- **Semantic Hooks**: Map active intents to specific markdown specifications (`docs/*.md`, `specs/*.md`).
+- **Living Constitutions**: Enforce project-level principles during the code generation phase.
+- **Spec-Code Sync**: Ensure that every `write_to_file` operation is validated against the corresponding spec file.
+
+### Advanced Knowledge Mesh
+
+- **Vectorized Context**: Create an in-memory index of project specs.
+- **Collaborative Filtering**: Surface relevant spec sections based on the code being edited.
+
+---
