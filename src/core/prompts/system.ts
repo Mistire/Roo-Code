@@ -23,6 +23,7 @@ import {
 	addCustomInstructions,
 	markdownFormattingSection,
 	getSkillsSection,
+	getIntentSection,
 } from "./sections"
 
 // Helper function to get prompt component, filtering out empty objects
@@ -98,6 +99,7 @@ ${getRulesSection(cwd, settings)}
 
 ${getSystemInfoSection(cwd)}
 
+${getIntentSection(settings?.activeIntent)}
 ${getObjectiveSection()}
 
 ${await addCustomInstructions(baseInstructions, globalCustomInstructions || "", cwd, mode, {

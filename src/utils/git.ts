@@ -191,6 +191,20 @@ export async function getWorkspaceGitInfo(): Promise<GitRepositoryInfo> {
 	return getGitRepositoryInfo(workspaceRoot)
 }
 
+/**
+ * Gets the current git revision ID (HEAD hash)
+ * @param cwd The working directory to check
+ * @returns The full SHA-1 hash of HEAD or undefined
+ */
+export async function getGitRevision(cwd: string): Promise<string | undefined> {
+	try {
+		const { stdout } = await execAsync("git rev-parse HEAD", { cwd })
+		return stdout.trim()
+	} catch (error) {
+		return undefined
+	}
+}
+
 async function checkGitRepo(cwd: string): Promise<boolean> {
 	try {
 		await execAsync("git rev-parse --git-dir", { cwd })

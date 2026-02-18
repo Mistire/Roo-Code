@@ -20,9 +20,7 @@ export class SelectActiveIntentTool extends BaseTool<"select_active_intent"> {
 			// which should be initialized on the Task.
 			// For now, we'll store it on the task instance or a shared context.
 
-			// Assume OrchestrationService is available or can be instantiated
-			const orchestrationService = new OrchestrationService(task.cwd)
-			const intent = await orchestrationService.getIntent(intent_id)
+			const intent = await task.orchestrationService.getIntent(intent_id)
 
 			if (!intent) {
 				pushToolResult(

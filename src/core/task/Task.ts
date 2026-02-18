@@ -103,6 +103,7 @@ import { FileContextTracker } from "../context-tracking/FileContextTracker"
 import { RooIgnoreController } from "../ignore/RooIgnoreController"
 import { RooProtectedController } from "../protect/RooProtectedController"
 import { type AssistantMessageContent, presentAssistantMessage } from "../assistant-message"
+import { Intent, OrchestrationService } from "../../services/orchestration/OrchestrationService"
 import { NativeToolCallParser } from "../assistant-message/NativeToolCallParser"
 import { manageContext, willManageContext } from "../context-management"
 import { ClineProvider } from "../webview/ClineProvider"
@@ -298,6 +299,9 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 	toolRepetitionDetector: ToolRepetitionDetector
 	rooIgnoreController?: RooIgnoreController
 	rooProtectedController?: RooProtectedController
+	public readonly orchestrationService: OrchestrationService
+	public activeIntentId?: string
+	public activeIntentContext?: Intent
 	fileContextTracker: FileContextTracker
 	terminalProcess?: RooTerminalProcess
 
@@ -363,8 +367,6 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 	 * Set to `true` after the assistant message is saved in `recursivelyMakeClineRequests`.
 	 */
 	public assistantMessageSavedToHistory = false
-	public activeIntentId?: string
-	public activeIntentContext?: any
 	didRejectTool = false
 	didAlreadyUseTool = false
 	didToolFailInCurrentTurn = false
@@ -482,6 +484,10 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 
 		this.rooIgnoreController = new RooIgnoreController(this.cwd)
 		this.rooProtectedController = new RooProtectedController(this.cwd)
+		this.orchestrationService = new OrchestrationService(this.cwd)
+		this.orchestrationService.initialize().catch((error) => {
+			console.error("Failed to initialize OrchestrationService:", error)
+		})
 		this.fileContextTracker = new FileContextTracker(provider, this.taskId)
 
 		this.rooIgnoreController.initialize().catch((error) => {
@@ -3802,6 +3808,7 @@ Constraints: ${this.activeIntentContext.constraints?.map((c: string) => `- ${c}`
 						.getConfiguration(Package.name)
 						.get<boolean>("newTaskRequireTodos", false),
 					isStealthModel: modelInfo?.isStealthModel,
+					activeIntent: this.activeIntentContext,
 				},
 				undefined, // todoList
 				this.api.getModel().id,

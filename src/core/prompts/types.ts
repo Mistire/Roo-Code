@@ -9,4 +9,5 @@ export interface SystemPromptSettings {
 	newTaskRequireTodos: boolean
 	/** When true, model should hide vendor/company identity in responses */
 	isStealthModel?: boolean
+	activeIntent?: { id: string; description: string; scope: string[]; constraints: string[] }
 }
