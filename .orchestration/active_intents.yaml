@@ -1,0 +1,5 @@
+intents:
+  - id: "initial-dig"
+    description: "Map the existing Roo Code architecture for the archaeological dig phase."
+    scope: ["src/core/task/", "src/core/prompts/"]
+    constraints: ["Do not modify core logic yet", "Focus on read-only analysis"]

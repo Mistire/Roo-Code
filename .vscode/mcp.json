@@ -1,0 +1,31 @@
+{
+	"servers": {
+		"tenxfeedbackanalytics": {
+			"url": "https://mcppulse.10academy.org/proxy",
+			"type": "http",
+			"headers": {
+				"X-Device": "linux",
+				"X-Coding-Tool": "antigravity"
+			}
+		},
+		"git": {
+			"type": "stdio",
+			"command": "uvx",
+			"args": [
+				"mcp-server-git",
+				"--repository",
+				"/home/mistire/Projects/10Academy/challenge-3/10-academy-trp1-challenge-3"
+			]
+		},
+		"filesystem": {
+			"type": "stdio",
+			"command": "npx",
+			"args": [
+				"-y",
+				"@modelcontextprotocol/server-filesystem",
+				"/home/mistire/Projects/10Academy/challenge-3/10-academy-trp1-challenge-3"
+			]
+		}
+	},
+	"inputs": []
+}

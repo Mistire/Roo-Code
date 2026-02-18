@@ -362,8 +362,12 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 	 * Reset to `false` at the start of each API request.
 	 * Set to `true` after the assistant message is saved in `recursivelyMakeClineRequests`.
 	 */
-	assistantMessageSavedToHistory = false
-
+	public assistantMessageSavedToHistory = false
+	public activeIntentId?: string
+	public activeIntentContext?: any
+	didRejectTool = false
+	didAlreadyUseTool = false
+	didToolFailInCurrentTurn = false
 	/**
 	 * Push a tool_result block to userMessageContent, preventing duplicates.
 	 * Duplicate tool_use_ids cause API errors.
@@ -385,9 +389,6 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		this.userMessageContent.push(toolResult)
 		return true
 	}
-	didRejectTool = false
-	didAlreadyUseTool = false
-	didToolFailInCurrentTurn = false
 	didCompleteReadingStream = false
 	private _started = false
 	// No streaming parser is required.
@@ -592,11 +593,6 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 	 * 3. Handles errors gracefully by falling back to default mode
 	 * 4. Logs any initialization errors for debugging
 	 *
-	 * ## Error handling
-	 * - Network failures when fetching provider state
-	 * - Provider not yet initialized
-	 * - Invalid state structure
-	 *
 	 * All errors result in fallback to `defaultModeSlug` to ensure task can proceed.
 	 *
 	 * @private
@@ -625,11 +621,6 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 	 * 2. Sets `_taskApiConfigName` to the fetched name or "default" if unavailable
 	 * 3. Handles errors gracefully by falling back to "default"
 	 * 4. Logs any initialization errors for debugging
-	 *
-	 * ## Error handling
-	 * - Network failures when fetching provider state
-	 * - Provider not yet initialized
-	 * - Invalid state structure
 	 *
 	 * All errors result in fallback to "default" to ensure task can proceed.
 	 *
@@ -751,18 +742,6 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 	 * - In synchronous contexts where async/await is not available
 	 * - After explicitly waiting for initialization via `waitForModeInitialization()`
 	 * - In event handlers or callbacks where mode is guaranteed to be initialized
-	 *
-	 * ## Example usage
-	 * ```typescript
-	 * // After ensuring initialization
-	 * await task.waitForModeInitialization();
-	 * const mode = task.taskMode; // Safe synchronous access
-	 *
-	 * // In an event handler after task is started
-	 * task.on('taskStarted', () => {
-	 *   console.log(`Task started in ${task.taskMode} mode`); // Safe here
-	 * });
-	 * ```
 	 *
 	 * @throws {Error} If the mode hasn't been initialized yet
 	 * @returns The task mode string
@@ -2625,7 +2604,19 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				}
 			}
 
-			const environmentDetails = await getEnvironmentDetails(this, currentIncludeFileDetails)
+			let environmentDetails = await getEnvironmentDetails(this, currentIncludeFileDetails)
+
+			if (this.activeIntentId && this.activeIntentContext) {
+				const intentInfo = `
+<active_intent>
+ID: ${this.activeIntentId}
+Description: ${this.activeIntentContext.description}
+Scope: ${this.activeIntentContext.scope?.join(", ")}
+Constraints: ${this.activeIntentContext.constraints?.map((c: string) => `- ${c}`).join("\n")}
+</active_intent>
+`
+				environmentDetails += intentInfo
+			}
 
 			// Remove any existing environment_details blocks before adding fresh ones.
 			// This prevents duplicate environment details when resuming tasks,

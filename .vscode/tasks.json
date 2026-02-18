@@ -17,7 +17,7 @@
 		{
 			"label": "watch:webview",
 			"type": "shell",
-			"command": "pnpm --filter @roo-code/vscode-webview dev",
+			"command": "/home/mistire/.nvm/versions/node/v20.19.2/bin/pnpm --filter @roo-code/vscode-webview dev",
 			"group": "build",
 			"problemMatcher": {
 				"owner": "vite",
@@ -61,7 +61,7 @@
 		{
 			"label": "watch:tsc",
 			"type": "shell",
-			"command": "npx turbo watch:tsc",
+			"command": "/home/mistire/.nvm/versions/node/v20.19.2/bin/pnpm turbo watch:tsc",
 			"group": "build",
 			"problemMatcher": "$tsc-watch",
 			"isBackground": true,
