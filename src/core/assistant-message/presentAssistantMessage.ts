@@ -5,6 +5,7 @@ import type { ToolName, ClineAsk, ToolProgressStatus } from "@roo-code/types"
 import { ConsecutiveMistakeError, TelemetryEventName } from "@roo-code/types"
 import { TelemetryService } from "@roo-code/telemetry"
 import { customToolRegistry } from "@roo-code/core"
+import ignore from "ignore"
 
 import { t } from "../../i18n"
 
@@ -697,6 +698,25 @@ export async function presentAssistantMessage(cline: Task) {
 					),
 				)
 				break
+			}
+
+			// Scope Enforcement
+			if (isStateChanging && (cline as any).activeIntentContext?.scope) {
+				const scope = (cline as any).activeIntentContext.scope
+				const ig = ignore().add(scope)
+				const filePath = block.params?.path || block.params?.file_path || block.params?.file_path
+				if (filePath) {
+					// We use .ignores() to check if the path matches the scope patterns.
+					// If it doesn't match, it's a scope violation.
+					if (!ig.ignores(filePath)) {
+						pushToolResult(
+							formatResponse.toolError(
+								`Scope Violation: The active intent '${(cline as any).activeIntentId}' is not authorized to edit '${filePath}'. Authorized scope: ${JSON.stringify(scope)}. Please select an appropriate intent or request scope expansion.`,
+							),
+						)
+						break
+					}
+				}
 			}
 
 			// Intercept pushToolResult for trace recording
