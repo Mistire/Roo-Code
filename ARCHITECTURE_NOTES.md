@@ -88,29 +88,30 @@ Roo Code uses a dynamic, modular system for constructing the system prompt.
 
 `src/core/webview/ClineProvider.ts` acts as the bridge between the VS Code UI (Webview) and the `Task` logic. It handles sidebar registration, message passing, and state management.
 
-## 5. Architectural Decisions for the Hook System
+## 5. Architectural Decisions & Implementation of the Hook System
 
-To meet the requirements of the Deterministic Hook System, the following architectural decisions are proposed:
+The Hook System has been fully implemented to meet the requirements of the Deterministic Hook System, providing robust context management and governance.
 
 ### A. Lifecycle Interceptors
 
-- **Pre-Hook (Enforcement)**: Injected into `Task.recursivelyMakeClineRequests` before `this.api.createMessage`. This will intercept the user message and inject the "Active Intent" context.
-- **Post-Hook (Traceability)**: Injected into `presentAssistantMessage.ts` inside the `tool_use` case, specifically after `pushToolResult(content)`. This will trigger the recording of the `agent_trace.jsonl` entry.
+- **Pre-Hook (Enforcement)**: Injected into `presentAssistantMessage.ts` before tool execution. This intercepts state-changing tool calls (like `write_to_file` or `execute_command`) and validates them against the active intent context.
+- **Post-Hook (Traceability)**: Injected into the `pushToolResult` path. This triggers the `TraceRecordingPlugin` to log the `agent_trace.jsonl` entry.
 
-### B. Two-Stage State Machine
+### B. Two-Stage State Machine (Handshake)
 
-- We will introduce a new tool `select_active_intent` in `src/core/tools/`.
-- The system prompt in `src/core/prompts/system.ts` will be modified to instruct the agent to use `select_active_intent` before any other state-changing tool.
-- A "Context Partition" will be enforced: if no intent is active, tools like `write_to_file` and `execute_command` will be gated/rejected by the middleware.
+- **The `select_active_intent` Tool**: Implemented and registered as a native tool. This is the mandatory "Handshake" tool that enables the agent to declare its intent before acting.
+- **Context Injection**: When an intent is selected, the `HookEngine` loads the specific scope and constraints from `.orchestration/active_intents.yaml` and injects them back into the agent's context.
+- **Intent Gating**: Destructive tools are strictly gated. If no intent is selected, or if the action violates the intent's scope, the execution is blocked with a "Structure Validation Error" or "Scope Violation".
 
 ### C. Data Model (.orchestration/)
 
-- The `.orchestration/` directory will be managed via a new `OrchestrationService` (to be created in `src/services/`).
-- This service will handle YAML parsing for `active_intents.yaml` and append-only logic for `agent_trace.jsonl`.
+- **`OrchestrationService`**: A centralized service that manages the `.orchestration/` directory, handling YAML for intent specifications and JSONL for the trace ledger.
+- **Persistence**: All intent states and agent traces are persisted in the workspace, ensuring the "Shared Brain" survives across sessions.
 
-### D. Spatial Independence
+### D. Spatial Independence & Governance
 
-- Trace records will store file paths and content hashes (SHA-256) of the resulting file after a tool execution, rather than line numbers.
+- **SHA-256 Hashing**: Implemented using the Node.js `crypto` module. Every `write_to_file` and `apply_diff` operation labels the trace with a content hash.
+- **Scope Enforcement**: Uses the `ignore` library to perform high-performance glob matching against the intent's `owned_scope`.
 
 ## 6. Diagram of the Hook System
 
