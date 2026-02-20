@@ -1,5 +1,58 @@
-intents:
-  - id: "initial-dig"
-    description: "Map the existing Roo Code architecture for the archaeological dig phase."
-    scope: ["src/core/task/", "src/core/prompts/"]
-    constraints: ["Do not modify core logic yet", "Focus on read-only analysis"]
+# ==============================================================
+# Active Intent Specifications (Demo Version)
+# ==============================================================
+# This file is for demo. You can select these intents in Roo Code
+# to demonstrate the governance and traceability systems.
+# ==============================================================
+
+active_intents:
+    - id: "INT-001"
+      name: "Build Weather API Integration"
+      description: >
+          Implement a new Weather API service that fetches data from
+          OpenWeatherMap. Should include a service class and unit tests.
+      status: "IN_PROGRESS"
+      owned_scope:
+          - "src/services/weather/**"
+          - "tests/weather/**"
+          - "src/index.ts"
+      constraints:
+          - "Must use Axios for HTTP requests"
+          - "Must not leak API keys (use process.env)"
+          - "All methods must be asynchronous"
+      acceptance_criteria:
+          - "WeatherService.getForecast() returns typed JSON"
+          - "Unit tests achieve > 80% coverage"
+
+    - id: "INT-002"
+      name: "Refactor Authentication Logic"
+      description: >
+          Migrate from local storage sessions to HTTP-only cookie JWTs.
+          This is a security-critical refactor.
+      status: "IN_PROGRESS"
+      owned_scope:
+          - "src/auth/**"
+          - "src/middleware/auth.ts"
+      constraints:
+          - "Must follow the AST_REFACTOR classification rules"
+          - "Must maintain backward compatibility with legacy tokens for 24 hours"
+          - "Zero external dependencies for crypto (use Node.js crypto)"
+      acceptance_criteria:
+          - "New middleware intercepts all /api/* routes"
+          - "Cookies are set with Secure and HttpOnly flags"
+
+    - id: "INT-003"
+      name: "Cleanup Legacy Assets"
+      description: >
+          Remove unused images and old CSS files from the public directory.
+          This will require 'execute_command' and should trigger HITL alerts.
+      status: "IN_PROGRESS"
+      owned_scope:
+          - "public/assets/**"
+          - "src/styles/legacy/**"
+      constraints:
+          - "Only delete files that aren't referenced in the source"
+          - "Warning: destructive commands (rm) will trigger governance blocks"
+      acceptance_criteria:
+          - "At least 5MB of space freed"
+          - "No broken image links in the UI"
