@@ -1,6 +1,7 @@
 import { ToolName } from "@roo-code/types"
 import { Task } from "../core/task/Task"
 import { traceRecordingPlugin } from "./TraceRecordingPlugin"
+import { optimisticLockingPlugin } from "./OptimisticLockingPlugin"
 
 export interface HookContext {
 	intentId?: string
@@ -52,3 +53,4 @@ export class HookEngine {
 
 export const hookEngine = new HookEngine()
 hookEngine.register(traceRecordingPlugin)
+hookEngine.register(optimisticLockingPlugin)
