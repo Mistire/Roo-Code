@@ -99,7 +99,7 @@ ${getRulesSection(cwd, settings)}
 
 ${getSystemInfoSection(cwd)}
 
-${getIntentSection(settings?.activeIntent)}
+${await getIntentSection(cwd, settings?.activeIntent)}
 ${getObjectiveSection()}
 
 ${await addCustomInstructions(baseInstructions, globalCustomInstructions || "", cwd, mode, {

@@ -40,6 +40,8 @@ import { isValidToolName, validateToolUse } from "../tools/validateToolUse"
 import { codebaseSearchTool } from "../tools/CodebaseSearchTool"
 import { selectActiveIntentTool } from "../tools/SelectActiveIntentTool"
 import { hookEngine } from "../../hooks/HookEngine"
+import { classifyCommand } from "../../hooks/classifyCommand"
+import * as vscode from "vscode"
 
 import { formatResponse } from "../prompts/responses"
 import { sanitizeToolUseId } from "../../utils/tool-id"
@@ -673,7 +675,7 @@ export async function presentAssistantMessage(cline: Task) {
 					// Return tool result message about the repetition
 					pushToolResult(
 						formatResponse.toolError(
-							`Tool call repetition limit reached for ${block.name}. Please try a different approach.`,
+							`Tool call repetition limit reached for ${block.name}. Please try a different approach. \n\nREMINDER: If you are trying to write or execute code, make sure you have used the 'select_active_intent' tool first to select an active intent.`,
 						),
 					)
 					break
@@ -700,21 +702,46 @@ export async function presentAssistantMessage(cline: Task) {
 				break
 			}
 
-			// Scope Enforcement
-			if (isStateChanging && (cline as any).activeIntentContext?.scope) {
-				const scope = (cline as any).activeIntentContext.scope
-				const ig = ignore().add(scope)
-				const filePath = block.params?.path || block.params?.file_path || block.params?.file_path
-				if (filePath) {
-					// We use .ignores() to check if the path matches the scope patterns.
-					// If it doesn't match, it's a scope violation.
-					if (!ig.ignores(filePath)) {
-						pushToolResult(
-							formatResponse.toolError(
-								`Scope Violation: The active intent '${(cline as any).activeIntentId}' is not authorized to edit '${filePath}'. Authorized scope: ${JSON.stringify(scope)}. Please select an appropriate intent or request scope expansion.`,
-							),
-						)
+			// HITL (Human-in-the-Loop) Authorization for destructive commands
+			if (block.name === "execute_command") {
+				const command = (block.params as any).command
+				if (command && classifyCommand(command) === "destructive") {
+					const answer = await vscode.window.showWarningMessage(
+						`Destructive Command Detected: "${command}". Are you sure you want to authorize this action under intent '${(cline as any).activeIntentId}'?`,
+						{ modal: true },
+						"Approve",
+						"Reject",
+					)
+
+					if (answer !== "Approve") {
+						const errorMsg = `Governance Violation: Destructive command "${command}" was rejected by the human manager.`
+						await cline.say("error", errorMsg)
+						pushToolResult(formatResponse.toolError(errorMsg))
 						break
+					}
+				}
+			}
+
+			// Scope Enforcement
+
+			if (isStateChanging && (cline as any).activeIntentContext) {
+				const intentCtx = (cline as any).activeIntentContext
+				const scope = intentCtx.owned_scope || intentCtx.scope
+				if (scope && scope.length > 0) {
+					const ig = ignore().add(scope)
+					const args = block.nativeArgs || block.params
+					const filePath = args?.path || args?.file_path
+					if (filePath) {
+						// We use .ignores() to check if the path matches the scope patterns.
+						// If it doesn't match, it's a scope violation.
+						if (!ig.ignores(filePath)) {
+							pushToolResult(
+								formatResponse.toolError(
+									`Scope Violation: The active intent '${(cline as any).activeIntentId}' is not authorized to edit '${filePath}'. Authorized scope: ${JSON.stringify(scope)}. Please select an appropriate intent or request scope expansion.`,
+								),
+							)
+							break
+						}
 					}
 				}
 			}
@@ -732,6 +759,18 @@ export async function presentAssistantMessage(cline: Task) {
 						task: cline,
 					})
 					.catch((err) => console.error("Post-Hook failed:", err))
+			}
+
+			// Trigger Pre-Hook (e.g., Optimistic Locking)
+			try {
+				await hookEngine.triggerPreToolUse({
+					toolName: block.name as ToolName,
+					params: block.nativeArgs || block.params,
+					task: cline,
+				})
+			} catch (err: any) {
+				pushToolResult(formatResponse.toolError(err.message))
+				break
 			}
 
 			switch (block.name) {
